@@ -7,7 +7,7 @@ function Config() {
     cell: 32, // height of each cell in atlas
     lodCell: 128, // height of each cell in LOD
     atlas: 2048, // height of each atlas
-    texture: 8192,//webgl.limits.textureSize, HUILLCA ---
+    texture: webgl.limits.textureSize, // 8192 HUILLCA ---
     lodTexture: 2**13,
     points: {
       min: 0, // min point size
@@ -300,6 +300,89 @@ Atlas.prototype.load = function() {
 // ------------------------------------------------------------------------------------------------------------
 
 /**
+* Assess WebGL parameters
+**/
+
+function Webgl() {
+  this.gl = this.getGl();
+  this.limits = this.getLimits();
+}
+
+/**
+* Get a WebGL context, or display an error if WebGL is not available
+**/
+
+Webgl.prototype.getGl = function() {
+  var gl = getElem('canvas').getContext('webgl');
+  if (!gl) document.querySelector('#webgl-not-available').style.display = 'block';
+  return gl;
+}
+
+/**
+* Get the limits of the user's WebGL context
+**/
+
+Webgl.prototype.getLimits = function() {
+  // fetch all browser extensions as a map for O(1) lookups
+  var extensions = this.gl.getSupportedExtensions().reduce(function(obj, i) {
+    obj[i] = true; return obj;
+  }, {})
+  // assess support for 32-bit indices in gl.drawElements calls
+  var maxIndex = 2**16 - 1;
+  ['', 'MOZ_', 'WEBKIT_'].forEach(function(ext) {
+    if (extensions[ext + 'OES_element_index_uint']) maxIndex = 2**32 - 1;
+  })
+  // for stats see e.g. https://webglstats.com/webgl/parameter/MAX_TEXTURE_SIZE
+  return {
+    // max h,w of textures in px
+    textureSize: Math.min(this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE), 2**13),
+    // max textures that can be used in fragment shader
+    textureCount: this.gl.getParameter(this.gl.MAX_TEXTURE_IMAGE_UNITS),
+    // max textures that can be used in vertex shader
+    vShaderTextures: this.gl.getParameter(this.gl.MAX_VERTEX_TEXTURE_IMAGE_UNITS),
+    // max number of indexed elements
+    indexedElements: maxIndex,
+  }
+}
+
+// ------------------------------------------------------------------------------------------------------------
+
+/**
+* World: Container object for the THREE.js scene that renders all cells
+*
+* scene: a THREE.Scene() object
+* camera: a THREE.PerspectiveCamera() object
+* renderer: a THREE.WebGLRenderer() object
+* controls: a THREE.TrackballControls() object
+* stats: a Stats() object
+* color: a THREE.Color() object
+* center: a map identifying the midpoint of cells' positions in x,y dims
+* group: the group of meshes used to render cells
+* state: a map identifying internal state of the world
+**/
+
+function World() {
+  this.canvas = document.querySelector('#pixplot-canvas');
+  this.scene = this.getScene();
+
+  var gl = this.canvas.getContext('webgl');
+  gl.clearColor(0.75, 0.85, 0.8, 1.0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+}
+
+/**
+* Return a scene object with a background color
+**/
+
+World.prototype.getScene = function() {
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xFFFFFF);
+  return scene;
+}
+
+// ------------------------------------------------------------------------------------------------------------
+
+/**
 * Handle load progress and welcome scene events
 **/
 
@@ -368,6 +451,23 @@ Welcome.prototype.onButtonClick = function(e) {
   
 // ------------------------------------------------------------------------------------------------------------
 /**
+* Create an element
+*
+* @param {obj} obj
+*   tag: specifies the tag to use for the element
+*   obj: a set of k/v attributes to be applied to the element
+**/
+
+function getElem(tag, obj) {
+  var obj = obj || {};
+  var elem = document.createElement(tag);
+  Object.keys(obj).forEach(function(attr) {
+    elem[attr] = obj[attr];
+  })
+  return elem;
+}
+
+/**
 * Make an XHR get request for data
 *
 * @param {str} url: the url of the data to fetch
@@ -431,7 +531,8 @@ function getPath(path) {
 console.log('hi..1')
 window.devicePixelRatio = Math.min(window.devicePixelRatio, 2);
 var welcome = new Welcome();
-//welcome.updateProgress()
+var webgl = new Webgl();
 var config = new Config();
+var world = new World();
 var data = new Data();
 data.load()

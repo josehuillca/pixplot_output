@@ -32,8 +32,28 @@
       <button id='enter-button'>Enter</button>
     </div>
 
-    Hi!
+    <!-- Canvas -->
+    <div id='canvas-container'>
+      <div id='jitter-container'>
+        <input type='checkbox' id='jitter-input'>
+        <label>Jitter</label>
+      </div>
+      <div id='canvas-target'>
+        <canvas id='pixplot-canvas' />
+      </div>
+    </div>
+
+    Hi - canvas arriba!
+
+    <!-- Webgl / Noscript Warnings -->
+    <div id='webgl-not-available'>
+      <div class='browser-message'>Sorry, your browser is not able to load a WebGL scene currently. Please check your browser settings and try again.</div>
+    </div>
+    <noscript>
+      <span class='browser-message'>Sorry, your browser is not able to load a WebGL scene currently. Please enable JavaScript and try again.</span>
+    </noscript>
     
+    <script type='text/javascript' src='assets/vendor/dist/three.min.js'></script>
     <script type='text/javascript' src='assets/js/tsne.js'></script>
     
   </body>
