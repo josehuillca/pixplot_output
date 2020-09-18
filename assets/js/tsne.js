@@ -580,6 +580,81 @@ Layout.prototype.init = function(options) {
 // ------------------------------------------------------------------------------------------------------------
 
 /**
+* Picker: Mouse event handler that uses gpu picking
+**/
+
+function Picker() {
+  this.scene = new THREE.Scene();
+  this.scene.background = new THREE.Color(0x000000);
+  this.mouseDown = new THREE.Vector2();
+  this.tex = this.getTexture();
+}
+
+// get the texture on which off-screen rendering will happen
+Picker.prototype.getTexture = function() {
+  var canvasSize = getCanvasSize();
+  var tex = new THREE.WebGLRenderTarget(canvasSize.w, canvasSize.h);
+  tex.texture.minFilter = THREE.LinearFilter;
+  return tex;
+}
+
+// on canvas mousedown store the coords where user moused down
+Picker.prototype.onMouseDown = function(e) {
+  var click = this.getClickOffsets(e);
+  this.mouseDown.x = click.x;
+  this.mouseDown.y = click.y;
+}
+
+// get the x, y offsets of a click within the canvas
+Picker.prototype.getClickOffsets = function(e) {
+  var rect = e.target.getBoundingClientRect();
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top,
+  }
+}
+
+// on canvas click, show detailed modal with clicked image
+Picker.prototype.onMouseUp = function(e) {
+  // if click hit background, close the modal
+  console.log('onMouseUp')
+}
+
+// get the mesh in which to render picking elements
+Picker.prototype.init = function() {
+  world.canvas.addEventListener('mousedown', this.onMouseDown.bind(this));
+  document.body.addEventListener('mouseup', this.onMouseUp.bind(this));
+  var group = new THREE.Group();
+  for (var i=0; i<world.group.children.length; i++) {
+    var mesh = world.group.children[i].clone();
+    mesh.material = world.getShaderMaterial({useColor: true});
+    group.add(mesh);
+  }
+  this.scene.add(group);
+}
+
+// draw an offscreen world then reset the render target so world can update
+Picker.prototype.render = function() {
+  world.renderer.setRenderTarget(this.tex);
+  world.renderer.render(this.scene, world.camera);
+  world.renderer.setRenderTarget(null);
+}
+
+Picker.prototype.select = function(obj) {
+  if (!world || !obj) return;
+  this.render();
+  // read the texture color at the current mouse pixel
+  var pixelBuffer = new Uint8Array(4),
+      x = obj.x * window.devicePixelRatio,
+      y = this.tex.height - obj.y * window.devicePixelRatio;
+  world.renderer.readRenderTargetPixels(this.tex, x, y, 1, 1, pixelBuffer);
+  var id = (pixelBuffer[0] << 16) | (pixelBuffer[1] << 8) | (pixelBuffer[2]),
+      cellIdx = id-1; // ids use id+1 as the id of null selections is 0
+  return cellIdx;
+}
+// ------------------------------------------------------------------------------------------------------------
+
+/**
 * World: Container object for the THREE.js scene that renders all cells
 *
 * scene: a THREE.Scene() object
@@ -612,7 +687,7 @@ function World() {
   this.elems = {
     pointSize: document.querySelector('#pointsize-range-input'),
   };
-
+  this.addEventListeners();
   //var gl = this.canvas.getContext('webgl');
   //gl.clearColor(0.75, 0.85, 0.8, 1.0);
   //gl.clear(gl.COLOR_BUFFER_BIT);
@@ -1038,6 +1113,33 @@ World.prototype.getInitialLocation = function() {
   }
 }
 
+// helper function to set uniforms on all meshes
+World.prototype.setUniform = function(key, val) {
+  var meshes = this.group.children.concat(picker.scene.children[0].children);
+  for (var i=0; i<meshes.length; i++) {
+    meshes[i].material.uniforms[key].value = val;
+  }
+}
+/**
+* Add event listeners, e.g. to resize canvas on window resize
+**/
+
+World.prototype.addEventListeners = function() {
+  this.addResizeListener();
+  this.addLostContextListener();
+  this.addScalarChangeListener();
+  this.addTabChangeListeners();
+  this.addModeChangeListeners();
+}
+
+/**
+* Resize event listeners
+**/
+
+World.prototype.addResizeListener = function() {
+  window.addEventListener('resize', this.handleResize.bind(this), false);
+}
+
 World.prototype.handleResize = function() {
   var canvasSize = getCanvasSize(),
       w = canvasSize.w * window.devicePixelRatio,
@@ -1046,8 +1148,8 @@ World.prototype.handleResize = function() {
   this.camera.updateProjectionMatrix();
   this.renderer.setSize(w, h, false);
   this.controls.handleResize();
-  //picker.tex.setSize(w, h);
-  // this.setPointScalar();
+  picker.tex.setSize(w, h);
+  this.setPointScalar();
 }
 
 /**
@@ -1136,6 +1238,51 @@ World.prototype.setPointScalar = function() {
   // update the displayed and selector meshes
   this.setUniform('scale', this.getPointScale())
 }
+
+/**
+* Update the point size when the user changes the input slider
+**/
+
+World.prototype.addScalarChangeListener = function() {
+  this.elems.pointSize.addEventListener('change', this.setPointScalar.bind(this));
+  this.elems.pointSize.addEventListener('input', this.setPointScalar.bind(this));
+}
+
+/**
+* Refrain from drawing scene when user isn't looking at page
+**/
+
+World.prototype.addTabChangeListeners = function() {
+  // change the canvas size to handle Chromium bug 1034019
+  window.addEventListener('visibilitychange', function() {
+    this.canvas.width = this.canvas.width + 1;
+    setTimeout(function() {
+      this.canvas.width = this.canvas.width - 1;
+    }.bind(this), 50);
+  }.bind(this))
+}
+
+/**
+* listen for loss of webgl context; to manually lose context:
+* world.renderer.context.getExtension('WEBGL_lose_context').loseContext();
+**/
+
+World.prototype.addLostContextListener = function() {
+  this.canvas.addEventListener('webglcontextlost', function(e) {
+    e.preventDefault();
+    window.location.reload();
+  });
+}
+
+/**
+* Listen for changes in world.mode
+**/
+
+World.prototype.addModeChangeListeners = function() {
+  document.querySelector('#pan').addEventListener('click', this.handleModeIconClick.bind(this));
+  document.querySelector('#select').addEventListener('click', this.handleModeIconClick.bind(this));
+}
+
 // ------------------------------------------------------------------------------------------------------------
 
 /**
@@ -1192,7 +1339,7 @@ Welcome.prototype.onButtonClick = function(e) {
   Welcome.prototype.startWorld = function() {
     requestAnimationFrame(function() {
       world.init();
-      //picker.init();
+      picker.init();
       //text.init();
       //dates.init();
       setTimeout(function() {
@@ -1302,6 +1449,7 @@ window.devicePixelRatio = Math.min(window.devicePixelRatio, 2);
 var welcome = new Welcome();
 var webgl = new Webgl();
 var config = new Config();
+var picker = new Picker();
 var layout = new Layout();
 var world = new World();
 var data = new Data();
